@@ -4,11 +4,14 @@ import enum
 import importlib.util
 import inspect
 import io
+import json
 import os.path
 from pathlib import Path
 from pydantic import create_model, BaseModel, Field
 from pydantic.fields import FieldInfo
 from typing import Any, Callable, Dict, List, Optional, Type, Union
+import cProfile
+import time
 
 # Added in Python 3.8. Can be from typing if we drop support for <3.8.
 from typing_extensions import get_origin, get_args, Annotated
@@ -43,10 +46,19 @@ class BasePredictor(ABC):
 
 def run_setup(predictor: BasePredictor) -> None:
     weights_type = get_weights_type(predictor.setup)
-
+    profiling_dir = 'profiling'
+    if not os.path.exists(profiling_dir):
+        os.makedirs(profiling_dir)
+    
     # No weights need to be passed, so just run setup() without any arguments.
     if weights_type is None:
-        predictor.setup()
+        with cProfile.Profile() as pr:
+            st = time.time()
+            predictor.setup()
+            rt = time.time() - st
+            pr.dump_stats(os.path.join(profiling_dir, f"setup_{st:.0f}.prof"))
+            with open(os.path.join(profiling_dir, f"setup_{st:.0f}.json"), "w") as fh:
+                json.dump({"setup time": f'{rt:2f}'}, fh)
         return
 
     weights: Union[io.IOBase, Path, None]
@@ -78,7 +90,14 @@ def run_setup(predictor: BasePredictor) -> None:
     else:
         weights = None
 
-    predictor.setup(weights=weights)
+    with cProfile.Profile() as pr:
+        st = time.time()
+        predictor.setup(weights=weights)
+        rt = time.time() - st
+        pr.dump_stats(os.path.join(profiling_dir, f"setup_{st:.0f}.prof"))
+        with open(os.path.join(profiling_dir, f"setup_{st:.0f}.json"), "w") as fh:
+            json.dump({"setup time": f'{rt:2f}'}, fh)
+
 
 
 def get_weights_type(setup_function) -> Optional[Any]:
