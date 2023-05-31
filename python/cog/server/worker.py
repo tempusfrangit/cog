@@ -1,7 +1,9 @@
+import json
 import multiprocessing
 import os
 import signal
 import sys
+import time
 import traceback
 import types
 from enum import Enum, auto, unique
@@ -214,7 +216,12 @@ class _ChildWorker(_spawn.Process):  # type: ignore
         self._cancelable = True
         try:
             predict = get_predict(self._predictor)
+            
+            st = time.time()
             result = predict(**payload)
+            rt = time.time() - st
+            with open(os.path.join("profiling", f"{st:.0f}_predict.json"), "w") as fh:
+                json.dump({"predict time": f'{rt:2f}'}, fh)
 
             if result:
                 if isinstance(result, types.GeneratorType):

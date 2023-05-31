@@ -56,8 +56,8 @@ def run_setup(predictor: BasePredictor) -> None:
             st = time.time()
             predictor.setup()
             rt = time.time() - st
-            pr.dump_stats(os.path.join(profiling_dir, f"setup_{st:.0f}.prof"))
-            with open(os.path.join(profiling_dir, f"setup_{st:.0f}.json"), "w") as fh:
+            pr.dump_stats(os.path.join(profiling_dir, f"{st:.0f}_setup.prof"))
+            with open(os.path.join(profiling_dir, f"{st:.0f}_setup.json"), "w") as fh:
                 json.dump({"setup time": f'{rt:2f}'}, fh)
         return
 
@@ -94,8 +94,8 @@ def run_setup(predictor: BasePredictor) -> None:
         st = time.time()
         predictor.setup(weights=weights)
         rt = time.time() - st
-        pr.dump_stats(os.path.join(profiling_dir, f"setup_{st:.0f}.prof"))
-        with open(os.path.join(profiling_dir, f"setup_{st:.0f}.json"), "w") as fh:
+        pr.dump_stats(os.path.join(profiling_dir, f"{st:.0f}_setup.prof"))
+        with open(os.path.join(profiling_dir, f"{st:.0f}_setup.json"), "w") as fh:
             json.dump({"setup time": f'{rt:2f}'}, fh)
 
 
@@ -120,7 +120,12 @@ def run_prediction(
     Run the predictor on the inputs, and append resulting paths
     to cleanup functions for removal.
     """
+    st = time.time()
     result = predictor.predict(**inputs)
+    rt = time.time() - st
+    with open(os.path.join(PROFILING_DIR, f"{METRICS_KEY}_predict.json"), "w") as fh:
+        print("dumping predict time")
+        json.dump({"predict time": f'{rt:2f}'}, fh)
     if isinstance(result, Path):
         cleanup_functions.append(result.unlink)
     return result
