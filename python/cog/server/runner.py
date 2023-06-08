@@ -392,6 +392,7 @@ def _predict(
             if output_type.multi:
                 event_handler.set_output([])
         elif isinstance(event, PredictionOutput):
+            log.info("received output")
             if output_type is None:
                 event_handler.failed(error="Predictor returned unexpected output")
                 break
