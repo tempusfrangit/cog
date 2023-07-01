@@ -255,6 +255,18 @@ ENV PYTHONUNBUFFERED=1
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu:/usr/local/nvidia/lib64:/usr/local/nvidia/bin`
 }
 
+func (g *Generator) downloadTini() string {
+	version := "v0.19.0"
+	arch := "amd64"
+	// https://github.com/tarampampam/curl-docker
+	// single-binary image, no /bin/sh, so we need exec form and not shell form
+	// doing it in a separate layer allows us to be agnostic about the base image
+	// at the small cost of downloading 14MB when building from python:3 
+	fmt.Sprintf(`FROM tarampampam/curl as tini
+RUN ["curl", "-sSL", "-o", "/tini", "https://github.com/krallin/tini/releases/download/%s/tini-%s"]
+`, version, arch)
+}
+
 func (g *Generator) installTini() string {
 	// Install tini as the image entrypoint to provide signal handling and process
 	// reaping appropriate for PID 1.
@@ -262,24 +274,9 @@ func (g *Generator) installTini() string {
 	// N.B. If you remove/change this, consider removing/changing the `has_init`
 	// image label applied in image/build.go.
 
-	// python:3 includes curl, so it does not need to be installed
-	install := `RUN set -eux; \`
-	// nvidia/cuda does not include curl, so it must be installed
-	if g.Config.Build.GPU {
-		install = `RUN --mount=type=cache,target=/var/cache/apt set -eux; \
-apt-get update -qq; \
-apt-get install -qqy --no-install-recommends curl; \
-rm -rf /var/lib/apt/lists/*; \`
-	}
-	lines := []string{
-		install,
-		`TINI_VERSION=v0.19.0; \
-TINI_ARCH="$(dpkg --print-architecture)"; \
-curl -sSL -o /sbin/tini "https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini-${TINI_ARCH}"; \
-chmod +x /sbin/tini`,
-		`ENTRYPOINT ["/sbin/tini", "--"]`,
-	}
-	return strings.Join(lines, "\n")
+	// 
+    return `COPY --from=tini --chmod=0775 --link /tini /sbin/tini
+ENTRYPOINT ["/sbin/tini", "--"]`
 }
 
 func (g *Generator) aptInstalls() (string, error) {
