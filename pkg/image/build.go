@@ -20,7 +20,7 @@ const dockerignoreBackupPath = ".dockerignore.cog.bak"
 // Build a Cog model from a config
 //
 // This is separated out from docker.Build(), so that can be as close as possible to the behavior of 'docker build'.
-func Build(cfg *config.Config, dir, imageName string, secrets []string, noCache, separateWeights bool, useCudaBaseImage string, progressOutput string) error {
+func Build(cfg *config.Config, dir, imageName string, secrets []string, noCache, separateWeights bool, useCudaBaseImage string, progressOutput string, schemaFile string) error {
 	console.Infof("Building Docker image from environment in cog.yaml as %s...", imageName)
 
 	generator, err := dockerfile.NewGenerator(cfg, dir)
@@ -70,9 +70,31 @@ func Build(cfg *config.Config, dir, imageName string, secrets []string, noCache,
 	}
 
 	console.Info("Adding labels to image...")
-	schema, err := GenerateOpenAPISchema(imageName, cfg.Build.GPU)
-	if err != nil {
-		return fmt.Errorf("Failed to get type signature: %w", err)
+
+	var schemaJSON []byte
+	if schemaFile != "" {
+		// We were passed a schema file, so use that
+		schemaJSON, err = os.ReadFile(schemaFile)
+		if err != nil {
+			return fmt.Errorf("Failed to read schema file: %w", err)
+		}
+	} else {
+		schema, err := GenerateOpenAPISchema(imageName, cfg.Build.GPU)
+		if err != nil {
+			return fmt.Errorf("Failed to get type signature: %w", err)
+		}
+		// OpenAPI schema is not set if there is no predictor.
+		if len((*schema).(map[string]interface{})) != 0 {
+			schemaJSON, err = json.Marshal(schema)
+			if err != nil {
+				return fmt.Errorf("Failed to convert type signature to JSON: %w", err)
+			}
+		}
+		// Maybe this should go in tmpdir instead
+		schemaFile = path.Join(dir, "openapi_schema.json")
+		if err := os.WriteFile(schemaFile, schemaJSON, 0o644); err != nil {
+			return fmt.Errorf("Failed to write schema file: %w", err)
+		}
 	}
 	configJSON, err := json.Marshal(cfg)
 	if err != nil {
@@ -98,12 +120,7 @@ func Build(cfg *config.Config, dir, imageName string, secrets []string, noCache,
 		"org.cogmodel.config":      string(bytes.TrimSpace(configJSON)),
 	}
 
-	// OpenAPI schema is not set if there is no predictor.
-	if len((*schema).(map[string]interface{})) != 0 {
-		schemaJSON, err := json.Marshal(schema)
-		if err != nil {
-			return fmt.Errorf("Failed to convert type signature to JSON: %w", err)
-		}
+	if schemaJSON != nil {
 		labels[global.LabelNamespace+"openapi_schema"] = string(schemaJSON)
 		labels["org.cogmodel.openapi_schema"] = string(schemaJSON)
 	}
