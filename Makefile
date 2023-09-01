@@ -11,7 +11,7 @@ GO := go
 GOOS := $(shell $(GO) env GOOS)
 GOARCH := $(shell $(GO) env GOARCH)
 
-PYTHON := python
+PYTHON := python3
 PYTEST := $(PYTHON) -m pytest
 MYPY := $(PYTHON) -m mypy
 RUFF := $(PYTHON) -m ruff
@@ -23,14 +23,14 @@ all: cog
 
 pkg/dockerfile/embed/cog.whl: python/* python/cog/* python/cog/server/* python/cog/command/*
 	@echo "Building Python library"
-	rm -rf dist
+	#rm -rf dist
 	$(PYTHON) -m pip install build && $(PYTHON) -m build --wheel
 	mkdir -p pkg/dockerfile/embed
 	cp dist/*.whl $@
 
 .PHONY: cog
 cog: pkg/dockerfile/embed/cog.whl
-	$(eval COG_VERSION ?= $(shell git describe --tags --match 'v*' --abbrev=0)+dev)
+	$(eval COG_VERSION ?= $(shell git describe --tags --match 'v*' --abbrev=0))
 	CGO_ENABLED=0 $(GO) build -o $@ \
 		-ldflags "-X github.com/replicate/cog/pkg/global.Version=$(COG_VERSION) -X github.com/replicate/cog/pkg/global.BuildTime=$(shell date +%Y-%m-%dT%H:%M:%S%z) -w" \
 		cmd/cog/cog.go

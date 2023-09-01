@@ -375,6 +375,7 @@ func (g *Generator) pipInstallStage() (string, error) {
 	lines := []string{
 		// Not slim, so that we can compile wheels
 		`FROM python:` + g.Config.Build.PythonVersion + ` as deps`,
+		`RUN apt update && apt install -yy cmake google-perftools`,
 		installCog,
 		copyLine[0],
 		"RUN --mount=type=cache,target=/root/.cache/pip pip install -t /dep -r " + containerPath,
