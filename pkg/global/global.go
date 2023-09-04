@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	Version               = "0.8.6"
+	Version               = "dev"
 	Commit                = ""
 	BuildTime             = "none"
 	Debug                 = false

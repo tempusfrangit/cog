@@ -372,10 +372,14 @@ func (g *Generator) pipInstallStage() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	buildStageDeps := os.Getenv("BUILD_STAGE_DEPS")
+	if buildStageDeps != "" {
+		buildStageDeps = "RUN " + buildStageDeps
+	} 
 	lines := []string{
 		// Not slim, so that we can compile wheels
 		`FROM python:` + g.Config.Build.PythonVersion + ` as deps`,
-		`RUN apt update && apt install -yy cmake google-perftools`,
+		buildStageDeps,
 		installCog,
 		copyLine[0],
 		"RUN --mount=type=cache,target=/root/.cache/pip pip install -t /dep -r " + containerPath,
