@@ -13,7 +13,16 @@ from typing import Any, Callable, Dict, Optional, Union
 
 import structlog
 import uvicorn
-from fastapi import Body, FastAPI, Header, HTTPException, Path, Response
+from fastapi import (
+    Body,
+    FastAPI,
+    Header,
+    HTTPException,
+    Path,
+    Response,
+    WebSocket,
+    WebSocketDisconnect
+)
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -138,6 +147,23 @@ def create_app(
         respond_async = prefer == "respond-async"
 
         return _predict(request=request, respond_async=respond_async)
+
+    @app.websocket("/prediction/ws")
+    async def predict(ws: WebSocket) -> None:
+        """
+        Run a single prediction on the model
+        """
+        if runner.is_busy():
+            # not right
+            return JSONResponse(
+                {"detail": "Already running a prediction"}, status_code=409
+            )
+        await ws.connect()
+        async for data in ws.iter_json():
+            request = PredictionRequest(**data)  # wrong?
+            output = _predict(request=request, respond_async=False)  # hm
+            await ws.send_json(output)  # needs to be just json
+        await ws.close()
 
     @limited
     @app.put(
