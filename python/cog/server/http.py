@@ -158,11 +158,11 @@ def create_app(
             return JSONResponse(
                 {"detail": "Already running a prediction"}, status_code=409
             )
-        await ws.connect()
+        await ws.accept()
         async for data in ws.iter_json():
             request = PredictionRequest(**data)  # wrong?
             output = _predict(request=request, respond_async=False)  # hm
-            await ws.send_json(output)  # needs to be just json
+            await ws.send_str(output.body.decode())  # needs to be just json
         await ws.close()
 
     @limited
