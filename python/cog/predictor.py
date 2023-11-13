@@ -66,8 +66,8 @@ class BasePredictor(ABC):
 def run_setup(predictor: BasePredictor) -> None:
     weights = get_weights_argument(predictor)
     if weights:
-        return predictor.setup()
-    return predictor.setup(weights=weights)
+        return predictor.setup(weights=weights)
+    return predictor.setup()
 
 
 async def run_setup_async(predictor: BasePredictor) -> None:
@@ -78,6 +78,7 @@ async def run_setup_async(predictor: BasePredictor) -> None:
 
 
 def get_weights_argument(predictor: BasePredictor) -> Union[io.IOBase, CogPath, None]:
+    # by the time we get here we assume predictor has a setup method
     weights_type = get_weights_type(predictor.setup)
     if weights_type is None:
         return None
@@ -106,7 +107,7 @@ def get_weights_argument(predictor: BasePredictor) -> Union[io.IOBase, CogPath, 
     return None
 
 
-def get_weights_type(predictor: BasePredictor) -> Optional[Any]:
+def get_weights_type(setup_function: Callable) -> Optional[Any]:
     signature = inspect.signature(setup_function)
     if "weights" not in signature.parameters:
         return None
