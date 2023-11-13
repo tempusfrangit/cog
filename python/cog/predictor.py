@@ -9,6 +9,7 @@ from collections.abc import Iterator, AsyncIterator
 from pathlib import Path
 from typing import (
     Any,
+    Awaitable,
     Callable,
     Dict,
     List,
@@ -46,7 +47,9 @@ ALLOWED_INPUT_TYPES = [str, int, float, bool, CogFile, CogPath]
 
 
 class BasePredictor(ABC):
-    def setup(self, weights: Optional[Union[CogFile, CogPath]] = None) -> None:
+    def setup(
+        self, weights: Optional[Union[CogFile, CogPath]] = None
+    ) -> Union[Awaitable[None], None]:
         """
         An optional method to prepare the model so multiple predictions run efficiently.
         """
@@ -61,15 +64,23 @@ class BasePredictor(ABC):
 
 
 def run_setup(predictor: BasePredictor) -> None:
+    weights = get_weights_argument(predictor)
+    if weights:
+        return predictor.setup()
+    return predictor.setup(weights=weights)
+
+
+async def run_setup_async(predictor: BasePredictor) -> None:
+    weights = get_weights_argument(predictor)
+    maybe_coro = predictor.setup(weights=weights) if weights else predictor.setup()
+    if maybe_coro:
+        return await maybe_coro
+
+
+def get_weights_argument(predictor: BasePredictor) -> Union[io.IOBase, CogPath, None]:
     weights_type = get_weights_type(predictor.setup)
-
-    # No weights need to be passed, so just run setup() without any arguments.
     if weights_type is None:
-        predictor.setup()
-        return
-
-    weights: Union[io.IOBase, Path, None]
-
+        return None
     weights_url = os.environ.get("COG_WEIGHTS")
     weights_path = "weights"
 
@@ -78,29 +89,24 @@ def run_setup(predictor: BasePredictor) -> None:
     # up a little bit.
     if weights_url:
         if weights_type == CogFile:
-            weights = CogFile.validate(weights_url)
-        elif weights_type == CogPath:
-            weights = CogPath.validate(weights_url)
-        else:
-            raise ValueError(
-                f"Predictor.setup() has an argument 'weights' of type {weights_type}, but only File and Path are supported"
-            )
-    elif os.path.exists(weights_path):
+            return CogFile.validate(weights_url)
+        if weights_type == CogPath:
+            return CogPath.validate(weights_url)
+        raise ValueError(
+            f"Predictor.setup() has an argument 'weights' of type {weights_type}, but only File and Path are supported"
+        )
+    if os.path.exists(weights_path):
         if weights_type == CogFile:
-            weights = open(weights_path, "rb")
-        elif weights_type == CogPath:
-            weights = CogPath(weights_path)
-        else:
-            raise ValueError(
-                f"Predictor.setup() has an argument 'weights' of type {weights_type}, but only File and Path are supported"
-            )
-    else:
-        weights = None
-
-    predictor.setup(weights=weights)
+            return open(weights_path, "rb")
+        if weights_type == CogPath:
+            return CogPath(weights_path)
+        raise ValueError(
+            f"Predictor.setup() has an argument 'weights' of type {weights_type}, but only File and Path are supported"
+        )
+    return None
 
 
-def get_weights_type(setup_function: Callable) -> Optional[Any]:
+def get_weights_type(predictor: BasePredictor) -> Optional[Any]:
     signature = inspect.signature(setup_function)
     if "weights" not in signature.parameters:
         return None
@@ -214,19 +220,23 @@ def get_predict(predictor: Any) -> Callable:
         return predictor.predict
     return predictor
 
+
 def validate_input_type(type: Type, name: str) -> None:
     if type is inspect.Signature.empty:
-            raise TypeError(
-                f"No input type provided for parameter `{name}`. Supported input types are: {readable_types_list(ALLOWED_INPUT_TYPES)}, or a Union or List of those types."
-            )
+        raise TypeError(
+            f"No input type provided for parameter `{name}`. Supported input types are: {readable_types_list(ALLOWED_INPUT_TYPES)}, or a Union or List of those types."
+        )
     elif type not in ALLOWED_INPUT_TYPES:
-        if hasattr(type, "__origin__") and (type.__origin__ is Union or type.__origin__ is list):
+        if hasattr(type, "__origin__") and (
+            type.__origin__ is Union or type.__origin__ is list
+        ):
             for t in get_args(type):
                 validate_input_type(t, name)
         else:
             raise TypeError(
                 f"Unsupported input type {human_readable_type_name(type)} for parameter `{name}`. Supported input types are: {readable_types_list(ALLOWED_INPUT_TYPES)}, or a Union or List of those types."
             )
+
 
 def get_input_type(predictor: BasePredictor) -> Type[BaseInput]:
     """
