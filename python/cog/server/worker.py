@@ -188,6 +188,12 @@ class _ChildWorker(_spawn.Process):  # type: ignore
         done = Done()
         try:
             self._predictor = load_predictor_from_ref(self._predictor_ref)
+            # if the user has opted into the async world, we want to create the event loop
+            # here even if setup isn't async, it might use get_running_loop, and we want
+            # that to find the same loop that will be be used for _loop_async
+            #
+            # otherwise, the user might new_event_loop to use with a ClientSession
+            # and then try to use the same ClientSession with a different event loop
             if is_async_predictor(self._predictor):
                 self.loop = get_loop()
             # Could be a function or a class
@@ -256,7 +262,8 @@ class _ChildWorker(_spawn.Process):  # type: ignore
 
     async def _predict_async(self, payload: Dict[str, Any]) -> None:
         with self._handle_predict_error():
-            result = get_predict(self._predictor)(**payload)
+            predict = get_predict(self._predictor)
+            result = predict(**payload)
             if result:
                 if inspect.isasyncgen(result):
                     self._events.send(PredictionOutputType(multi=True))
@@ -269,7 +276,8 @@ class _ChildWorker(_spawn.Process):  # type: ignore
 
     def _predict_sync(self, payload: Dict[str, Any]) -> None:
         with self._handle_predict_error():
-            result = get_predict(self._predictor)(**payload)
+            predict = get_predict(self._predictor)
+            result = predict(**payload)
             if result:
                 if inspect.isgenerator(result):
                     self._events.send(PredictionOutputType(multi=True))

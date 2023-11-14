@@ -49,7 +49,7 @@ ALLOWED_INPUT_TYPES = [str, int, float, bool, CogFile, CogPath]
 class BasePredictor(ABC):
     def setup(
         self, weights: Optional[Union[CogFile, CogPath]] = None
-    ) -> Union[Awaitable[None], None]:
+    ) -> Optional[Awaitable[None]]:
         """
         An optional method to prepare the model so multiple predictions run efficiently.
         """
