@@ -167,8 +167,8 @@ ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu:/usr/local/nvidia
 ENV NVIDIA_DRIVER_CAPABILITIES=all
 ` + testTini() + `RUN --mount=type=cache,target=/var/cache/apt apt-get update -qq && apt-get install -qqy ffmpeg cowsay && rm -rf /var/lib/apt/lists/*
 COPY --from=deps --link /dep /usr/local/lib/python3.8/site-packages
-RUN cowsay moo
 WORKDIR /src
+RUN cowsay moo
 EXPOSE 5000
 CMD ["python", "-m", "cog.server.http"]
 COPY . /src`
@@ -218,8 +218,8 @@ ENV NVIDIA_DRIVER_CAPABILITIES=all
 ` + testTini() +
 		testInstallPython("3.8") + `RUN --mount=type=cache,target=/var/cache/apt apt-get update -qq && apt-get install -qqy ffmpeg cowsay && rm -rf /var/lib/apt/lists/*
 RUN --mount=type=bind,from=deps,source=/dep,target=/dep cp -rf /dep/* $(pyenv prefix)/lib/python*/site-packages || true
-RUN cowsay moo
 WORKDIR /src
+RUN cowsay moo
 EXPOSE 5000
 CMD ["python", "-m", "cog.server.http"]
 COPY . /src`
@@ -262,8 +262,8 @@ ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu:/usr/local/nvidia
 ENV NVIDIA_DRIVER_CAPABILITIES=all
 ` + testTini() + `RUN --mount=type=cache,target=/var/cache/apt apt-get update -qq && apt-get install -qqy cowsay && rm -rf /var/lib/apt/lists/*
 COPY --from=deps --link /dep /usr/local/lib/python3.8/site-packages
-RUN cowsay moo
 WORKDIR /src
+RUN cowsay moo
 EXPOSE 5000
 CMD ["python", "-m", "cog.server.http"]
 COPY . /src`
@@ -371,11 +371,11 @@ ENV NVIDIA_DRIVER_CAPABILITIES=all
 ` + testTini() +
 		testInstallPython("3.8") + `RUN --mount=type=cache,target=/var/cache/apt apt-get update -qq && apt-get install -qqy ffmpeg cowsay && rm -rf /var/lib/apt/lists/*
 RUN --mount=type=bind,from=deps,source=/dep,target=/dep cp -rf /dep/* $(pyenv prefix)/lib/python*/site-packages || true
+WORKDIR /src
 RUN cowsay moo
 COPY --from=weights --link /src/checkpoints /src/checkpoints
 COPY --from=weights --link /src/models /src/models
 COPY --from=weights --link /src/root-large /src/root-large
-WORKDIR /src
 EXPOSE 5000
 CMD ["python", "-m", "cog.server.http"]
 COPY . /src`

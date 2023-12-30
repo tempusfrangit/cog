@@ -128,8 +128,8 @@ func (g *Generator) GenerateBase() (string, error) {
 		installPython,
 		aptInstalls,
 		g.pipInstalls(),
-		run,
 		`WORKDIR /src`,
+		run,
 		`EXPOSE 5000`,
 		`CMD ["python", "-m", "cog.server.http"]`,
 	}), "\n"), nil
@@ -192,6 +192,7 @@ func (g *Generator) Generate(imageName string) (weightsBase string, dockerfile s
 		installPython,
 		aptInstalls,
 		g.pipInstalls(),
+		`WORKDIR /src`,
 		runCommands,
 	}
 
@@ -200,7 +201,6 @@ func (g *Generator) Generate(imageName string) (weightsBase string, dockerfile s
 	}
 
 	base = append(base,
-		`WORKDIR /src`,
 		`EXPOSE 5000`,
 		`CMD ["python", "-m", "cog.server.http"]`,
 		`COPY . /src`,
