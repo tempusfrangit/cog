@@ -127,16 +127,20 @@ def create_app(
 
     try:
         predictor_ref = get_predictor_ref(config, mode)
-        # use bundled schema if it exists
-        schema_module = schema.create_schema_module()
-        if schema_module is not None:
-            log.info("using bundled schema")
-            InputType = schema_module.Input
-            OutputType = schema_module.Output
+        if os.getenv("COG_SKIP_INPUT_VALIDATION"):
+            InputType = Any
+            OutputType = Any
         else:
-            predictor = load_predictor_from_ref(predictor_ref)
-            InputType = get_input_type(predictor)
-            OutputType = get_output_type(predictor)
+            # use bundled schema if it exists
+            schema_module = schema.create_schema_module()
+            if schema_module is not None:
+                log.info("using bundled schema")
+                InputType = schema_module.Input
+                OutputType = schema_module.Output
+            else:
+                predictor = load_predictor_from_ref(predictor_ref)
+                InputType = get_input_type(predictor)
+                OutputType = get_output_type(predictor)
     except Exception:
         msg = "Error while loading predictor:\n\n" + traceback.format_exc()
         add_setup_failed_routes(app, started_at, msg)
