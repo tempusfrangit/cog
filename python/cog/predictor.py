@@ -43,7 +43,15 @@ from .types import (
 from .types import Path as CogPath
 from .types import Secret as CogSecret
 
-ALLOWED_INPUT_TYPES: List[Type[Any]] = [str, int, float, bool, CogFile, CogPath, CogSecret]
+ALLOWED_INPUT_TYPES: List[Type[Any]] = [
+    str,
+    int,
+    float,
+    bool,
+    CogFile,
+    CogPath,
+    CogSecret,
+]
 
 
 class BasePredictor(ABC):
