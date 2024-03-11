@@ -95,21 +95,6 @@ func (g *Generator) SetUseCudaBaseImage(argumentValue string) {
 }
 
 func (g *Generator) GenerateBase() (string, error) {
-	pipInstallStage, err := g.pipInstallStage()
-	if err != nil {
-		return "", err
-	}
-	baseImage, err := g.baseImage()
-	if err != nil {
-		return "", err
-	}
-	installPython := ""
-	if g.Config.Build.GPU && g.useCudaBaseImage {
-		installPython, err = g.installPythonCUDA()
-		if err != nil {
-			return "", err
-		}
-	}
 	aptInstalls, err := g.aptInstalls()
 	if err != nil {
 		return "", err
@@ -121,17 +106,10 @@ func (g *Generator) GenerateBase() (string, error) {
 
 	return strings.Join(filterEmpty([]string{
 		"#syntax=docker/dockerfile:1.4",
-		pipInstallStage,
-		"FROM " + baseImage,
-		g.preamble(),
-		g.installTini(),
-		installPython,
+		"FROM bfirsh/cog-base:cuda11.8-python3.11-pytorch2.0",
 		aptInstalls,
 		g.pipInstalls(),
 		run,
-		`WORKDIR /src`,
-		`EXPOSE 5000`,
-		`CMD ["python", "-m", "cog.server.http"]`,
 	}), "\n"), nil
 }
 
@@ -336,17 +314,13 @@ func (g *Generator) installCog() (string, error) {
 }
 
 func (g *Generator) pipInstallStage() (string, error) {
-	installCog, err := g.installCog()
-	if err != nil {
-		return "", err
-	}
 	requirements, err := g.Config.PythonRequirementsForArch(g.GOOS, g.GOARCH)
 	if err != nil {
 		return "", err
 	}
 	if strings.Trim(requirements, "") == "" {
 		return `FROM python:` + g.Config.Build.PythonVersion + ` as deps
-` + installCog, nil
+RUN mkdir /dep`, nil
 	}
 
 	copyLine, containerPath, err := g.writeTemp("requirements.txt", []byte(requirements))
@@ -365,7 +339,6 @@ func (g *Generator) pipInstallStage() (string, error) {
 	}
 	lines := []string{
 		fromLine,
-		installCog,
 		copyLine[0],
 		"RUN --mount=type=cache,target=/root/.cache/pip pip install -t /dep -r " + containerPath,
 	}
@@ -373,17 +346,22 @@ func (g *Generator) pipInstallStage() (string, error) {
 }
 
 func (g *Generator) pipInstalls() string {
-	// placing packages in workdir makes imports faster but seems to break integration tests
-	// return "COPY --from=deps --link /dep COPY --from=deps /src"
-	// ...except it's actually /root/.pyenv/versions/3.8.17/lib/python3.8/site-packages
-	py := g.Config.Build.PythonVersion
-	if g.Config.Build.GPU && g.useCudaBaseImage {
-		// this requires buildkit!
-		// we should check for buildkit and otherwise revert to symlinks or copying into /src
-		// we mount to avoid copying, which avoids having two copies in this layer
-		return "RUN --mount=type=bind,from=deps,source=/dep,target=/dep cp -rf /dep/* $(pyenv prefix)/lib/python*/site-packages || true"
+	requirements, err := g.Config.PythonRequirementsForArch(g.GOOS, g.GOARCH)
+	if err != nil {
+		panic(err)
 	}
-	return "COPY --from=deps --link /dep /usr/local/lib/python" + py + "/site-packages"
+	if strings.Trim(requirements, "") == "" {
+		panic(err)
+	}
+	copyLine, containerPath, err := g.writeTemp("requirements.txt", []byte(requirements))
+	if err != nil {
+		panic(err)
+	}
+	lines := []string{
+		copyLine[0],
+		"RUN --mount=type=cache,target=/root/.cache/pip pip install -r " + containerPath,
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (g *Generator) runCommands() (string, error) {
