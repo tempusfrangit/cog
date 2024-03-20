@@ -222,7 +222,7 @@ func versionGreater(a string, b string) (bool, error) {
 
 func CUDABaseImageFor(cuda string, cuDNN string) (string, error) {
 	for _, image := range CUDABaseImages {
-		if version.Matches(cuda, image.CUDA) && image.CuDNN == cuDNN {
+		if version.Matches(cuda, image.CUDA) && image.CuDNN == cuDNN && image.IsDevel == false {
 			return image.ImageTag(), nil
 		}
 	}

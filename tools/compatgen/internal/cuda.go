@@ -80,7 +80,7 @@ func parseCUDABaseImage(tag string) (*config.CUDABaseImage, error) {
 		Tag:     tag,
 		CUDA:    parts[0],
 		CuDNN:   strings.Split(parts[1], "cudnn")[1],
-		IsDevel: parts[2] == "devel",
+		IsDevel: parts[2] == "runtime",
 		Ubuntu:  strings.Split(parts[3], "ubuntu")[1],
 	}, nil
 }
