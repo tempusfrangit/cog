@@ -157,6 +157,12 @@ pub trait Orchestrator: Send + Sync {
     /// Register a prediction for response routing in the event loop.
     async fn register_prediction(&self, slot_id: SlotId, prediction: Arc<StdMutex<Prediction>>);
 
+    /// Register a deferred permit flag for a slot.
+    ///
+    /// When the worker sends ControlResponse::Idle for this slot, the orchestrator
+    /// will clear the deferred flag, allowing the permit to return to the pool.
+    async fn register_deferred_permit(&self, slot_id: SlotId, deferred: Arc<AtomicBool>);
+
     /// Run user-defined healthcheck if available.
     async fn healthcheck(&self) -> Result<HealthcheckResult, OrchestratorError>;
 
@@ -256,6 +262,7 @@ pub struct OrchestratorHandle {
     ctrl_writer:
         Arc<tokio::sync::Mutex<FramedWrite<tokio::process::ChildStdin, JsonCodec<ControlRequest>>>>,
     register_tx: mpsc::Sender<(SlotId, Arc<StdMutex<Prediction>>)>,
+    deferred_tx: mpsc::Sender<(SlotId, Arc<AtomicBool>)>,
     healthcheck_tx: mpsc::Sender<tokio::sync::oneshot::Sender<HealthcheckResult>>,
     slot_ids: Vec<SlotId>,
 }
@@ -264,6 +271,10 @@ pub struct OrchestratorHandle {
 impl Orchestrator for OrchestratorHandle {
     async fn register_prediction(&self, slot_id: SlotId, prediction: Arc<StdMutex<Prediction>>) {
         let _ = self.register_tx.send((slot_id, prediction)).await;
+    }
+
+    async fn register_deferred_permit(&self, slot_id: SlotId, deferred: Arc<AtomicBool>) {
+        let _ = self.deferred_tx.send((slot_id, deferred)).await;
     }
 
     async fn healthcheck(&self) -> Result<HealthcheckResult, OrchestratorError> {
@@ -465,6 +476,7 @@ pub async fn spawn_worker(
     }
 
     let (register_tx, register_rx) = mpsc::channel(num_slots);
+    let (deferred_tx, deferred_rx) = mpsc::channel(num_slots);
     let (healthcheck_tx, healthcheck_rx) = mpsc::channel(1);
 
     let ctrl_writer = Arc::new(tokio::sync::Mutex::new(ctrl_writer));
@@ -473,6 +485,7 @@ pub async fn spawn_worker(
         child,
         ctrl_writer: Arc::clone(&ctrl_writer),
         register_tx,
+        deferred_tx,
         healthcheck_tx,
         slot_ids: slot_ids.clone(),
     };
@@ -485,6 +498,7 @@ pub async fn spawn_worker(
             ctrl_writer_for_loop,
             slot_readers,
             register_rx,
+            deferred_rx,
             healthcheck_rx,
             pool_for_loop,
         )
@@ -509,10 +523,12 @@ async fn run_event_loop(
         FramedRead<tokio::net::unix::OwnedReadHalf, JsonCodec<SlotResponse>>,
     )>,
     mut register_rx: mpsc::Receiver<(SlotId, Arc<StdMutex<Prediction>>)>,
+    mut deferred_rx: mpsc::Receiver<(SlotId, Arc<AtomicBool>)>,
     mut healthcheck_rx: mpsc::Receiver<tokio::sync::oneshot::Sender<HealthcheckResult>>,
     pool: Arc<PermitPool>,
 ) {
     let mut predictions: HashMap<SlotId, Arc<StdMutex<Prediction>>> = HashMap::new();
+    let mut deferred_permits: HashMap<SlotId, Arc<AtomicBool>> = HashMap::new();
     let mut pending_healthchecks: Vec<tokio::sync::oneshot::Sender<HealthcheckResult>> = Vec::new();
     let mut healthcheck_counter: u64 = 0;
 

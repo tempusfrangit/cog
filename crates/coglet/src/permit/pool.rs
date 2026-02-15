@@ -20,6 +20,8 @@ pub(crate) struct PermitInner {
     pub writer: FramedWrite<OwnedWriteHalf, JsonCodec<SlotRequest>>,
     pub idle_flag: Arc<AtomicBool>,
     pub poisoned: Arc<AtomicBool>,
+    /// If true, defer returning to pool until explicitly confirmed
+    pub deferred: Arc<AtomicBool>,
 }
 
 struct PoolConnection {
@@ -42,6 +44,7 @@ pub struct PermitInUse {
     writer: Option<FramedWrite<OwnedWriteHalf, JsonCodec<SlotRequest>>>,
     idle_flag: Arc<AtomicBool>,
     poisoned: Arc<AtomicBool>,
+    deferred: Arc<AtomicBool>,
     pool: PoolConnection,
 }
 
@@ -52,12 +55,15 @@ impl PermitInUse {
         pool_available: Arc<AtomicUsize>,
     ) -> Self {
         inner.idle_flag.store(false, Ordering::Release);
+        // Enable deferred return - permit won't return to pool until worker confirms idle
+        inner.deferred.store(true, Ordering::Release);
 
         Self {
             slot_id: inner.slot_id,
             writer: Some(inner.writer),
             idle_flag: inner.idle_flag,
             poisoned: inner.poisoned,
+            deferred: inner.deferred,
             pool: PoolConnection {
                 pool_tx,
                 pool_available,
@@ -70,7 +76,7 @@ impl PermitInUse {
     }
 
     /// Transition to idle state - permit will return to pool on drop
-    /// (unless the slot has been poisoned at the pool level).
+    /// (unless the slot has been poisoned at the pool level or deferred return is enabled).
     pub fn into_idle(mut self) -> PermitIdle {
         self.idle_flag.store(true, Ordering::Release);
         PermitIdle {
@@ -78,6 +84,7 @@ impl PermitInUse {
             writer: self.writer.take(),
             idle_flag: Arc::clone(&self.idle_flag),
             poisoned: Arc::clone(&self.poisoned),
+            deferred: Arc::clone(&self.deferred), // Carry forward deferred flag
             pool: self.pool.clone(),
         }
     }
@@ -87,6 +94,8 @@ impl PermitInUse {
     /// Also sets the pool-level poison flag so the slot is never reused.
     pub fn into_poisoned(mut self) -> PermitPoisoned {
         self.poisoned.store(true, Ordering::Release);
+        // No need to defer for poisoned slots - they never return to pool anyway
+        self.deferred.store(false, Ordering::Release);
         PermitPoisoned {
             slot_id: self.slot_id,
             _writer: self.writer.take(),
@@ -111,18 +120,34 @@ impl Drop for PermitInUse {
 }
 
 /// A permit that completed successfully - returns to pool on drop
-/// (unless the slot has been poisoned at the pool level).
+/// (unless the slot has been poisoned at the pool level or deferred return is enabled).
 pub struct PermitIdle {
     slot_id: SlotId,
     writer: Option<FramedWrite<OwnedWriteHalf, JsonCodec<SlotRequest>>>,
     idle_flag: Arc<AtomicBool>,
     poisoned: Arc<AtomicBool>,
+    deferred: Arc<AtomicBool>,
     pool: PoolConnection,
 }
 
 impl PermitIdle {
     pub fn slot_id(&self) -> SlotId {
         self.slot_id
+    }
+
+    /// Get the deferred return flag for this permit.
+    ///
+    /// This allows the orchestrator to control when the permit returns to the pool.
+    pub fn deferred_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.deferred)
+    }
+
+    /// Confirm that the worker has marked this slot as idle, allowing permit to return to pool.
+    ///
+    /// This is called when the orchestrator receives ControlResponse::Idle from the worker.
+    /// Without this confirmation, the permit will not return to the pool on drop.
+    pub fn confirm_worker_idle(&self) {
+        self.deferred.store(false, Ordering::Release);
     }
 }
 
@@ -134,16 +159,25 @@ impl Drop for PermitIdle {
             return;
         }
 
+        // If deferred, don't return to pool until worker confirms idle.
+        // This prevents race where parent thinks slot is available but worker still has slot_busy=true.
+        if self.deferred.load(Ordering::Acquire) {
+            tracing::debug!(slot = %self.slot_id, "Slot deferred - waiting for worker Idle confirmation before returning to pool");
+            return;
+        }
+
         if let Some(writer) = self.writer.take() {
             let inner = PermitInner {
                 slot_id: self.slot_id,
                 writer,
                 idle_flag: Arc::clone(&self.idle_flag),
                 poisoned: Arc::clone(&self.poisoned),
+                deferred: Arc::clone(&self.deferred),
             };
 
             if self.pool.pool_tx.try_send(inner).is_ok() {
                 self.pool.pool_available.fetch_add(1, Ordering::Release);
+                tracing::trace!(slot = %self.slot_id, "Permit returned to pool");
             }
         }
     }
@@ -259,6 +293,7 @@ impl PermitPool {
             writer,
             idle_flag: Arc::new(AtomicBool::new(true)),
             poisoned,
+            deferred: Arc::new(AtomicBool::new(false)), // Not deferred initially
         };
 
         if let Err(e) = self.available_tx.try_send(inner) {
